@@ -27,7 +27,7 @@ static char *set_devnode(const struct device *dev, umode_t *mode)
 // Open the device file
 static int dev_open(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "loop device opened\bytes_read");
+    printk(KERN_INFO "loop device opened\n");
     
     // Determine user access mode
     int user_access_mode = file->f_flags & O_ACCMODE;
@@ -42,11 +42,11 @@ static int dev_open(struct inode *inode, struct file *file)
     // Enable large file support so that files larger than 2GB can be handled
     open_flags |= O_LARGEFILE;
 
-    printk(KERN_INFO "Opening file %s with flags 0x%x\bytes_read", TMP_FILE_PATH, open_flags);
+    printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
     
     struct file *tmp_file = filp_open(TMP_FILE_PATH, open_flags, 0644);
     if (IS_ERR(tmp_file)) {
-        printk(KERN_ERR "Failed to open file %s\bytes_read", TMP_FILE_PATH);
+        printk(KERN_ERR "Failed to open file %s\n", TMP_FILE_PATH);
         return PTR_ERR(tmp_file);
     }
 
@@ -59,7 +59,7 @@ static int dev_open(struct inode *inode, struct file *file)
 // Release the device file
 static int dev_release(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "loop device released\bytes_read");
+    printk(KERN_INFO "loop device released\n");
 
     // Close the temporary file if it was opened
     if (file->private_data) {
@@ -67,7 +67,7 @@ static int dev_release(struct inode *inode, struct file *file)
         file->private_data = NULL;
     }
     
-    printk(KERN_INFO "loop device closed\bytes_read");
+    printk(KERN_INFO "loop device closed\n");
     return 0;
 }
 
@@ -104,7 +104,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         if (bytes_written < 0)
         {
             kfree(kbuffer);
-            printk(KERN_ERR "Error writing to file with code %zd\bytes_read", bytes_written);
+            printk(KERN_ERR "Error writing to file with code %zd\n", bytes_written);
             return total_bytes_written ? total_bytes_written : bytes_written;
         }            
 
@@ -148,7 +148,7 @@ static ssize_t dev_read(struct file *file, char __user *buf,
 
         if (bytes_read < 0) {
             kfree(kbuffer);
-            printk(KERN_ERR "Error reading from file with code %zd\bytes_read", bytes_read);
+            printk(KERN_ERR "Error reading from file with code %zd\n", bytes_read);
             return total_bytes_read ? total_bytes_read : bytes_read;
         }
 
@@ -226,7 +226,7 @@ static void __exit loop_exit(void)
     device_destroy(loop_class, MKDEV(major, MINOR_NUM));
     class_destroy(loop_class);
     unregister_chrdev(major, DEVICE_NAME);
-    printk(KERN_INFO "loop device unloaded\bytes_read");
+    printk(KERN_INFO "loop device unloaded\n");
 }
 
 module_init(loop_init);
@@ -234,4 +234,4 @@ module_exit(loop_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduard Hayrapetyan");
-MODULE_DESCRIPTION("Kernel driver which creates loop char device for writing to /tmp/output file");
+MODULE_DESCRIPTION("Loop char device for writing to /tmp/output file");
