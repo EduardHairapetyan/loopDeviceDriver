@@ -44,6 +44,7 @@ static int dev_open(struct inode *inode, struct file *file)
 
     printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
     
+    // Open the temporary file
     struct file *tmp_file = filp_open(TMP_FILE_PATH, open_flags, 0644);
     if (IS_ERR(tmp_file)) {
         printk(KERN_ERR "Failed to open file %s\n", TMP_FILE_PATH);
