@@ -87,6 +87,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     if (!kbuffer)
         return -ENOMEM;
 
+    // Repeat until all data is written
     while (total_bytes_written < len)
     {
         // Calculate current chunk size
@@ -99,8 +100,10 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
             return total_bytes_written ? total_bytes_written : -EFAULT;
         }
 
+        // Write data from kernel buffer to the file
         ssize_t bytes_written = kernel_write(file->private_data, kbuffer, current_chunk_size, offset);
 
+        // Check for write errors
         if (bytes_written < 0)
         {
             kfree(kbuffer);
@@ -139,13 +142,16 @@ static ssize_t dev_read(struct file *file, char __user *buf,
         return -ENOMEM;
     }
 
+    // Repeat until all data is read
     while (total_bytes_read < len)
     {
         // Calculate current chunk size
         size_t current_chunk_size = min(len - total_bytes_read, (size_t)MAX_CHUNK_SIZE);
 
+        // Read data from the file into kernel buffer
         ssize_t bytes_read = kernel_read(file->private_data, kbuffer, current_chunk_size, offset);
 
+        // Check for read errors
         if (bytes_read < 0) {
             kfree(kbuffer);
             printk(KERN_ERR "Error reading from file with code %zd\n", bytes_read);
