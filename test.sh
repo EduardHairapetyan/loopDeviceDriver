@@ -33,29 +33,60 @@ echo "Generating random files with various sizes..."
 # 1KB file
 dd if=/dev/urandom of=random_1KB bs=1K count=1 > /dev/null 2>&1
 
+echo "Generated file with size 1kb"
+
 # 1MB file
 dd if=/dev/urandom of=random_1MB bs=1M count=1 > /dev/null 2>&1
+
+echo "Generated file with size 1mb"
 
 # 100MB file
 dd if=/dev/urandom of=random_100MB bs=1M count=100 > /dev/null 2>&1
 
+echo "Generated file with size 100mb"
+
 # 1GB file
 dd if=/dev/urandom of=random_1GB bs=1M count=1024 > /dev/null 2>&1
+
+echo "Generated file with size 1gb"
 
 # 10GB file
 dd if=/dev/urandom of=random_10GB bs=1M count=10240 > /dev/null 2>&1
 
+echo "Generated file with size 10gb"
+
+echo "Random files generated."
+
+echo "Writing one word to output file to initialize"
+
+echo "init" > $OUTPUT_PATH
+
+echo "Initialization complete."
 
 # Step 4: Write each file to the device and compare
 for file in random_1KB random_1MB random_100MB random_1GB random_10GB; do
     echo "Writing $file to $DEVICE..."
-    
+
+    # Record start time in milliseconds
+    start_time=$(date +%s%3N)
+
     # Write to the device
     cat $file > $DEVICE
+    
     if [ $? -ne 0 ]; then
         echo "Failed to write $file to device!"
     fi
-    
+
+    # Record end time in milliseconds
+    end_time=$(date +%s%3N)
+
+    # Calculate elapsed time
+    elapsed_ms=$((end_time - start_time))
+
+    # Log the size and time
+    filesize=$(stat -c%s "$file")
+    echo "Written $(numfmt --to=iec $filesize) in ${elapsed_ms} ms"
+
     # Compare the generated file with the output
     echo "Comparing $file with output file..."
     cmp -l $file $OUTPUT_PATH
@@ -65,6 +96,7 @@ for file in random_1KB random_1MB random_100MB random_1GB random_10GB; do
         echo "Comparison successful for $file!"
     fi
 done
+
 
 # Step 5: Clean up generated files
 echo "Cleaning up generated files..."
