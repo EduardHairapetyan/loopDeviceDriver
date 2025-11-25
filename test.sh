@@ -59,6 +59,8 @@ echo "Random files generated."
 
 echo "Writing one word to output file to initialize"
 
+# Whithout this line the first write operation takes longer time 
+# due to initialization and then time measurement is not accurate
 echo "init" > $OUTPUT_PATH
 
 echo "Initialization complete."
