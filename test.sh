@@ -112,4 +112,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# Step 7: Clean up build artifacts
+make clean > /dev/null 2>&1
+
 echo "Kernel module tested successfully!"

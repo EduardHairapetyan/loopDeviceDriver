@@ -1,13 +1,16 @@
-#include <linux/device.h>
 #include <linux/module.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 
+
 #define DEVICE_NAME     "loop"
 #define TMP_FILE_PATH   "/tmp/output"
 #define MINOR_NUM       0
-// Maximum current_chunk_size size for read/write operations
+// Maximum chunk size size for read/write operations
 // Can be adjusted as needed
 #define MAX_CHUNK_SIZE      65536
 
