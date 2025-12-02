@@ -5,6 +5,7 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
+#include <linux/delay.h>
 
 
 #define DEVICE_NAME     "loop"
@@ -27,36 +28,37 @@ static char *set_devnode(const struct device *dev, umode_t *mode)
     return NULL;
 }
 
+// Global kernel-space offset
+static loff_t g_koffset = 0;
+static loff_t g_uoffset = 0;
+
 // Open the device file
 static int dev_open(struct inode *inode, struct file *file)
 {
     printk(KERN_INFO "loop device opened\n");
-    
-    // Determine user access mode
+
+    // Reset global offset to 0 on open
+    g_koffset = 0;
+
     int user_access_mode = file->f_flags & O_ACCMODE;
     int open_flags = user_access_mode;
 
-    // If access mode is write or read-write, set create/truncate/append flags based on f_flags
     if (user_access_mode != O_RDONLY) {
         open_flags |= O_CREAT;
         if (file->f_flags & O_TRUNC)  open_flags |= O_TRUNC;
         if (file->f_flags & O_APPEND) open_flags |= O_APPEND;
     }
-    // Enable large file support so that files larger than 2GB can be handled
     open_flags |= O_LARGEFILE;
 
     printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
-    
-    // Open the temporary file
+
     struct file *tmp_file = filp_open(TMP_FILE_PATH, open_flags, 0644);
     if (IS_ERR(tmp_file)) {
         printk(KERN_ERR "Failed to open file %s\n", TMP_FILE_PATH);
         return PTR_ERR(tmp_file);
     }
 
-    // Store pointer per open instance
     file->private_data = tmp_file;
-
     return 0;
 }
 
@@ -65,67 +67,108 @@ static int dev_release(struct inode *inode, struct file *file)
 {
     printk(KERN_INFO "loop device released\n");
 
-    // Close the temporary file if it was opened
     if (file->private_data) {
+        char linebuf[128];
+        // Print final hex offset line
+        int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)g_koffset);
+        kernel_write(file->private_data, linebuf, flen, &g_uoffset);
         filp_close(file->private_data, NULL);
         file->private_data = NULL;
     }
-    
+
+    // Reset global offset to 0 on close
+    g_koffset = 0;
+
     printk(KERN_INFO "loop device closed\n");
     return 0;
 }
 
-// Write data to the temporary file
+// Write function using global offset
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
-    // Check if private_data is valid
     if (!file->private_data)
         return -EIO;
 
-    size_t total_bytes_written = 0;
+    printk("global offset %lld size %ld \n", (long long)g_koffset, len);
 
-    char *kbuffer = kmalloc(MAX_CHUNK_SIZE, GFP_KERNEL);
-
-    // Check if memory allocation was successful
-    if (!kbuffer)
+    size_t total_written = 0;
+    size_t hex_offset = g_koffset; // For display in hex dump
+    char *kbuf = kmalloc(16, GFP_KERNEL);
+    char linebuf[128];
+    if (!kbuf)
         return -ENOMEM;
 
-    // Repeat until all data is written
-    while (total_bytes_written < len)
-    {
-        // Calculate current chunk size
-        size_t current_chunk_size = min(len - total_bytes_written, (size_t)MAX_CHUNK_SIZE);
+    u16 prev_line[8] = {0};
+    bool prev_identical = false;
+    bool first_line = true;
 
-        // Copy data from user space to kernel buffer
-        if (copy_from_user(kbuffer, buf + total_bytes_written, current_chunk_size)) {
-            printk(KERN_ERR "Error copying data from user space\n");
-            kfree(kbuffer);
-            return total_bytes_written ? total_bytes_written : -EFAULT;
+    while (total_written < len) {
+        size_t chunk = min(len - total_written, (size_t)16);
+
+        if (copy_from_user(kbuf, buf + total_written, chunk)) {
+            kfree(kbuf);
+            return total_written ? total_written : -EFAULT;
         }
 
-        // Write data from kernel buffer to the file
-        ssize_t bytes_written = kernel_write(file->private_data, kbuffer, current_chunk_size, offset);
+        u16 curr_line[8] = {0};
+        for (size_t i = 0; i < chunk; i += 2) {
+            u16 w = kbuf[i];
+            if (i + 1 < chunk)
+                w |= kbuf[i + 1] << 8;
+            curr_line[i / 2] = w;
+        }
 
-        // Check for write errors
-        if (bytes_written < 0)
-        {
-            kfree(kbuffer);
-            printk(KERN_ERR "Error writing to file with code %zd\n", bytes_written);
-            return total_bytes_written ? total_bytes_written : bytes_written;
-        }            
+        if (!first_line && memcmp(curr_line, prev_line, chunk) == 0) {
+            if (!prev_identical) {
+                ssize_t written = kernel_write(file->private_data, "*\n", 2, offset);
+                if (written < 0) {
+                    kfree(kbuf);
+                    return written;
+                }
+                prev_identical = true;
+            }
+        } else {
+            int pos = scnprintf(linebuf, sizeof(linebuf), "%07zx ", hex_offset);
 
-        // Update total bytes written
-        total_bytes_written += bytes_written;
+            for (size_t i = 0; i < chunk; i += 2) {
+                u16 w = curr_line[i / 2];
+                if (i == 0)
+                    pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%04x", w);
+                else
+                    pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, " %04x", w);
+            }
 
-        // Check if current_chunk_size was bytes_written completely
-        if (bytes_written < current_chunk_size)
-            break;
+            for (size_t i = chunk; i < 16; i += 2)
+                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "     ");
+
+            pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "\n");
+
+            ssize_t written = kernel_write(file->private_data, linebuf, pos, offset);
+            if (written < 0) {
+                kfree(kbuf);
+                return written;
+            }
+
+            memcpy(prev_line, curr_line, sizeof(curr_line));
+            prev_identical = false;
+        }
+
+        first_line = false;
+        total_written += chunk;
+        hex_offset += chunk;
     }
 
-    kfree(kbuffer);
 
-    return total_bytes_written;
+    kfree(kbuf);
+
+    // Update user-space offset by total_written
+    g_koffset += len;
+    g_uoffset = *offset;
+
+    msleep(10);
+
+    return total_written;
 }
 
 

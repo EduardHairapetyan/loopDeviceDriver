@@ -30,79 +30,42 @@ fi
 # Step 3: Generate random files of different sizes
 echo "Generating random files with various sizes..."
 
-# 1KB file
-dd if=/dev/urandom of=random_1KB bs=1K count=1 > /dev/null 2>&1
-
-echo "Generated file with size 1kb"
-
-# 1MB file
-dd if=/dev/urandom of=random_1MB bs=1M count=1 > /dev/null 2>&1
-
-echo "Generated file with size 1mb"
-
-# 100MB file
-dd if=/dev/urandom of=random_100MB bs=1M count=100 > /dev/null 2>&1
-
-echo "Generated file with size 100mb"
-
-# 1GB file
-dd if=/dev/urandom of=random_1GB bs=1M count=1024 > /dev/null 2>&1
-
-echo "Generated file with size 1gb"
-
-# 10GB file
-dd if=/dev/urandom of=random_10GB bs=1M count=10240 > /dev/null 2>&1
-
-echo "Generated file with size 10gb"
+for size in 1K 1M 100M 1G 10G; do
+    filename="random_${size}"
+    echo "Generating $filename..."
+    dd if=/dev/urandom of="$filename" bs=$size count=1 status=none
+done
 
 echo "Random files generated."
 
-echo "Writing one word to output file to initialize"
-
-# Whithout this line the first write operation takes longer time 
-# due to initialization and then time measurement is not accurate
-echo "init" > $OUTPUT_PATH
-
-echo "Initialization complete."
-
-# Step 4: Write each file to the device and compare
-for file in random_1KB random_1MB random_100MB random_1GB random_10GB; do
+# Step 4: Write each file to the device and compare with hexdump
+for file in random_1K random_1M random_100M random_1G random_10G; do
     echo "Writing $file to $DEVICE..."
 
-    # Record start time in milliseconds
-    start_time=$(date +%s%3N)
-
     # Write to the device
-    cat $file > $DEVICE
-    
+    cat "$file" > "$DEVICE"
     if [ $? -ne 0 ]; then
         echo "Failed to write $file to device!"
+        continue
     fi
 
-    # Record end time in milliseconds
-    end_time=$(date +%s%3N)
+    # Generate hexdump of the original file
+    hexdump "$file" > /tmp/reference
 
-    # Calculate elapsed time
-    elapsed_ms=$((end_time - start_time))
-
-    # Log the size and time
-    filesize=$(stat -c%s "$file")
-    echo "Written $(numfmt --to=iec $filesize) in ${elapsed_ms} ms"
-
-    # Compare the generated file with the output
-    echo "Comparing $file with output file..."
-    cmp -l $file $OUTPUT_PATH
-    if [ $? -ne 0 ]; then
-        echo "Comparison failed for $file!"
-    else
+    # Compare device output with hexdump
+    echo "Comparing $file output with hexdump..."
+    diff /tmp/reference "$OUTPUT_PATH" > /tmp/diff_result
+    if [ $? -eq 0 ]; then
         echo "Comparison successful for $file!"
+    else
+        echo "Comparison failed for $file! Differences:"
+        head -n 10 /tmp/diff_result
     fi
 done
 
-
 # Step 5: Clean up generated files
 echo "Cleaning up generated files..."
-rm -f random_1KB random_1MB random_100MB random_1GB random_10GB
+rm -f random_1K random_1M random_100M random_1G random_10G /tmp/reference /tmp/diff_result
 
 # Step 6: Unload the kernel module after testing
 echo "Unloading kernel module..."
