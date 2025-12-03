@@ -76,7 +76,7 @@ static int dev_open(struct inode *inode, struct file *file)
 static int dev_release(struct inode *inode, struct file *file)
 {
     if (file_ctx.file) {
-        char linebuf[64];
+        char linebuf[128];
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.g_koffset);
         kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.g_uoffset));
@@ -109,6 +109,7 @@ static void hex16(char *out, uint16_t v)
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
+    printk(KERN_INFO "dev_write called with len=%zu and offset=%lld\n", len, *offset);
     if (!file_ctx.file)
     {
         printk(KERN_ERR "File context is invalid in write\n");
@@ -145,7 +146,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         for (size_t i = 0; i < chunkSize; i += 16) {
             uint8_t curr_chunk_size = min((size_t)16, chunkSize - i);
             memcpy(kbuf, chunk + i, curr_chunk_size);
-            char linebuf[64];       // final formatted output per line
+            char linebuf[128];       // final formatted output per line
 
             // parse bytes → uint16_t words
             uint16_t curr_line[8] = {0};
@@ -158,7 +159,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 if (!file_ctx.prev_identical) {
                     // first time we see repeated line → output "*"
-                    ret = kernel_write(file_ctx.file, "*\n", 2, offset);
+                    ret = kernel_write(file_ctx.file, "*\n", 2, &(file_ctx.g_uoffset));
                     if (ret < 0) {
                         printk(KERN_ERR "Error writing to file in write\n");
                         kfree(chunk);
@@ -198,7 +199,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 linebuf[pos++] = '\n';
 
-                ret = kernel_write(file_ctx.file, linebuf, pos, offset);
+                ret = kernel_write(file_ctx.file, linebuf, pos, &(file_ctx.g_uoffset));
                 if (ret < 0) {
                     printk(KERN_ERR "Error writing to file in write\n");
                     kfree(chunk);
@@ -218,7 +219,9 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     kfree(chunk);
 
-    file_ctx.g_uoffset = *offset;
+    // Update the user-space offset
+    // isn't strictly necessary as we maintain g_koffset
+    *offset = file_ctx.g_koffset;
 
     // msleep(30); // simulate some delay
 
