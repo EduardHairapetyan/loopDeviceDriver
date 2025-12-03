@@ -117,7 +117,6 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     ssize_t ret = 0;
     size_t total_written = 0;
-    size_t hex_offset = file_ctx.g_koffset;
 
     size_t chunkSize = min(len, MAX_CHUNK_SIZE);
     uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
@@ -173,7 +172,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                 int pos = 0;
 
                 // offset 7 digits hex padded
-                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", hex_offset);
+                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", (size_t)file_ctx.g_koffset);
 
                 // words
                 for (int i = 0; i < 8; i++) {
@@ -213,13 +212,12 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
             file_ctx.first_line = false;
             total_written += curr_chunk_size;
-            hex_offset += curr_chunk_size;
+            file_ctx.g_koffset += curr_chunk_size;
         }
     }
 
     kfree(chunk);
 
-    file_ctx.g_koffset += len;
     file_ctx.g_uoffset = *offset;
 
     // msleep(30); // simulate some delay
