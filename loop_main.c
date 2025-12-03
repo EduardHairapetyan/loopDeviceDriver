@@ -1,3 +1,5 @@
+#include "loop.h"
+#include "utils.h"
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -6,24 +8,6 @@
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
-
-
-#define DEVICE_NAME     "loop"
-#define TMP_FILE_PATH   "/tmp/output"
-#define MINOR_NUM       0
-// Maximum chunk size size for read/write operations
-// Can be adjusted as needed
-#define MAX_CHUNK_SIZE      65536
-
-typedef struct FileContext {
-    // Global kernel-space offset
-    struct file * file;
-    loff_t user_offset;
-    loff_t local_offset;
-    uint16_t prev_line[8];
-    bool is_prev_line_identical;
-    bool is_first_line;
-} FileContext;
 
 // Major number for the device
 static int major;
@@ -38,35 +22,6 @@ static FileContext file_ctx = {
     .is_prev_line_identical = false,
     .is_first_line = true,
 };
-
-static int32_t release_file_context(FileContext* ctx)
-{
-    if (!ctx)
-        return -1;
-
-    if (ctx->file) {
-        filp_close(ctx->file, NULL);
-        ctx->file = NULL;
-    }
-    ctx->user_offset = 0;
-    ctx->local_offset = 0;
-    memset(ctx->prev_line,0,sizeof(ctx->prev_line));
-    ctx->is_prev_line_identical = false;
-    ctx->is_first_line = true;
-
-    return 0;
-}
-
-// fast hex printing for 16-bit words
-static void hex16(char *out, uint16_t v)
-{
-    const char hex_digits[] = "0123456789abcdef";
-
-    out[0] = hex_digits[(v >> 12) & 0xF];
-    out[1] = hex_digits[(v >> 8) & 0xF];
-    out[2] = hex_digits[(v >> 4) & 0xF];
-    out[3] = hex_digits[v & 0xF];
-}
 
 // Helper function to set the devnode permissions
 static char *set_devnode(const struct device *dev, umode_t *mode)

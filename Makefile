@@ -1,5 +1,7 @@
 obj-m += loop.o
 
+loop-objs := loop_main.o utils.o
+
 ccflags-y := -O3
 
 all:
