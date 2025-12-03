@@ -50,8 +50,6 @@ static char *set_devnode(const struct device *dev, umode_t *mode)
 // Open the device file
 static int dev_open(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "loop device opened\n");
-
     int user_access_mode = file->f_flags & O_ACCMODE;
     int open_flags = user_access_mode;
 
@@ -77,8 +75,6 @@ static int dev_open(struct inode *inode, struct file *file)
 // Release the device file
 static int dev_release(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "loop device released\n");
-
     if (file_ctx.file) {
         char linebuf[64];
         // Print final hex offset line
@@ -95,7 +91,7 @@ static int dev_release(struct inode *inode, struct file *file)
     file_ctx.prev_identical = false;
     file_ctx.first_line = true;
 
-    printk(KERN_INFO "loop device closed\n");
+    printk(KERN_INFO "loop device released\n");
     return 0;
 }
 
@@ -114,7 +110,10 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
     if (!file_ctx.file)
+    {
+        printk(KERN_ERR "File context is invalid in write\n");
         return -EIO;
+    }
 
     ssize_t ret = 0;
     size_t total_written = 0;
@@ -124,7 +123,10 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
     
     if (!chunk)
+    {
+        printk(KERN_ERR "Failed to allocate memory for write chunk.\n");
         return -ENOMEM;    
+    }
 
     // Read from user buffer in chunks
     while (total_written < len) {
@@ -132,6 +134,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
         if (copy_from_user(chunk, buf + total_written, chunkSize))
         {
+            printk(KERN_ERR "Error copying data from user space\n");
             kfree(chunk);
             return total_written ? total_written : -EFAULT;
         }
@@ -158,6 +161,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                     // first time we see repeated line → output "*"
                     ret = kernel_write(file_ctx.file, "*\n", 2, offset);
                     if (ret < 0) {
+                        printk(KERN_ERR "Error writing to file in write\n");
                         kfree(chunk);
                         return total_written ? total_written : ret;
                     }
@@ -197,6 +201,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 ret = kernel_write(file_ctx.file, linebuf, pos, offset);
                 if (ret < 0) {
+                    printk(KERN_ERR "Error writing to file in write\n");
                     kfree(chunk);
                     return total_written ? total_written : ret;
                 }
@@ -228,7 +233,10 @@ static ssize_t dev_read(struct file *file, char __user *buf,
 {
     // Check if private_data is valid
     if (!file_ctx.file)
+    {
+        printk(KERN_ERR "File context is invalid in read\n");
         return -EIO;
+    }
 
     size_t total_bytes_read = 0;
 
@@ -251,8 +259,8 @@ static ssize_t dev_read(struct file *file, char __user *buf,
 
         // Check for read errors
         if (bytes_read < 0) {
-            kfree(kbuffer);
             printk(KERN_ERR "Error reading from file with code %zd\n", bytes_read);
+            kfree(kbuffer);
             return total_bytes_read ? total_bytes_read : bytes_read;
         }
 
