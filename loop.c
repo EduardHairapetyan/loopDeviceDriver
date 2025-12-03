@@ -201,14 +201,12 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
             total_written += curr_chunk_size;
             hex_offset += curr_chunk_size;
         }
-        kfree(chunk);
     }
 
     kfree(chunk);
 
     file_ctx.g_koffset += len;
     file_ctx.g_uoffset = *offset;
-
 
     // msleep(30); // simulate some delay
 
