@@ -20,7 +20,7 @@ typedef struct FileContext {
     struct file * file;
     loff_t g_koffset;
     loff_t g_uoffset;
-    uint8_t  kbuf[16];              // one 16-byte chunk
+    // uint8_t  kbuf[16];              // one 16-byte chunk
     uint16_t prev_line[8];
     bool prev_identical;
     bool first_line;
@@ -35,7 +35,7 @@ static FileContext file_ctx = {
     .file = NULL,
     .g_koffset = 0,
     .g_uoffset = 0,
-    .kbuf = {0},
+    // .kbuf = {0},
     .prev_line = {0},
     .prev_identical = false,
     .first_line = true,
@@ -82,7 +82,7 @@ static int dev_release(struct inode *inode, struct file *file)
     printk(KERN_INFO "loop device released\n");
 
     if (file_ctx.file) {
-        char linebuf[128];
+        char linebuf[64];
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.g_koffset);
         kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.g_uoffset));
@@ -93,7 +93,7 @@ static int dev_release(struct inode *inode, struct file *file)
     // Reset context 
     file_ctx.g_koffset = 0;
     file_ctx.g_uoffset = 0;
-    memset(file_ctx.kbuf,0,sizeof(file_ctx.kbuf));
+    // memset(file_ctx.kbuf,0,sizeof(file_ctx.kbuf));
     memset(file_ctx.prev_line,0,sizeof(file_ctx.prev_line));
     file_ctx.prev_identical = false;
     file_ctx.first_line = true;
@@ -122,19 +122,28 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     size_t total_written = 0;
     size_t hex_offset = file_ctx.g_koffset;
 
-    char linebuf[128];       // final formatted output per line
+    char linebuf[64];       // final formatted output per line
 
     while (total_written < len) {
 
-        size_t chunk = min(len - total_written, (size_t)16);
+        size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
 
-        if (copy_from_user(file_ctx.kbuf, buf + total_written, chunk))
+        uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
+
+        if (copy_from_user(chunk, buf + total_written, chunkSize))
             return total_written ? total_written : -EFAULT;
+
+        // now from small buffer read 16 byte chunks
+        uint8_t kbuf[16] = {0};
+
+        for (size_t i = 0; i < chunkSize; i += 16) {
+            uint8_t curr_chunk_size = min((size_t)16, chunkSize - i);
+            memcpy(kbuf, chunk + i, curr_chunk_size);
 
         // parse bytes → uint16_t words
         uint16_t curr_line[8] = {0};
-        for (size_t i = 0; i < chunk; i += 2) {
-            curr_line[i/2] = file_ctx.kbuf[i] | ((i+1 < chunk ? file_ctx.kbuf[i+1] : 0) << 8);
+        for (size_t i = 0; i < curr_chunk_size; i += 2) {
+            curr_line[i/2] = kbuf[i] | ((i+1 < curr_chunk_size ? kbuf[i+1] : 0) << 8);
         }
 
         // detect identical repeated line
@@ -155,13 +164,13 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
             // words
             for (int i = 0; i < 8; i++) {
-                if (i < chunk/2) {
+                if (i < curr_chunk_size/2) {
                     hex16(linebuf + pos, curr_line[i]);
                     pos += 4;
                 } else {
 
                     
-                    if( i != chunk/2)
+                    if( i != curr_chunk_size/2)
                         linebuf[pos++] = ' ';
                     
                     linebuf[pos++] = ' ';
@@ -182,16 +191,16 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
             memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
             file_ctx.prev_identical = false;
         }
+    
 
         file_ctx.first_line = false;
-        total_written += chunk;
-        hex_offset += chunk;
+        total_written += curr_chunk_size;
+        hex_offset += curr_chunk_size;
     }
+}
 
     file_ctx.g_koffset += len;
     file_ctx.g_uoffset = *offset;
-
-    msleep(50);
 
     return total_written;
 }
