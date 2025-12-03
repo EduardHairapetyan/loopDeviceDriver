@@ -175,27 +175,20 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                 // offset 7 digits hex padded
                 pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", (size_t)file_ctx.g_koffset);
 
-                // words
                 for (int i = 0; i < 8; i++) {
-                    if (i < curr_chunk_size/2) {
+                    if (i < curr_chunk_size / 2) {
                         hex16(linebuf + pos, curr_line[i]);
                         pos += 4;
                     } else {
-
-                        
-                        if( i != curr_chunk_size/2)
-                            linebuf[pos++] = ' ';
-                        
-                        linebuf[pos++] = ' ';
-                        linebuf[pos++] = ' ';
-                        linebuf[pos++] = ' ';
-                        linebuf[pos++] = ' ';
-                        continue;
+                        // Fill empty words with spaces
+                        memset(linebuf + pos, ' ', 4);
+                        pos += 4;
                     }
-
-                    if (i < 7)
+                    // Space between words (except after last)
+                    if (i != 7)
                         linebuf[pos++] = ' ';
                 }
+
 
                 linebuf[pos++] = '\n';
 
