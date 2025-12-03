@@ -116,6 +116,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     if (!file_ctx.file)
         return -EIO;
 
+    ssize_t ret = 0;
     size_t total_written = 0;
     size_t hex_offset = file_ctx.g_koffset;
 
@@ -155,7 +156,11 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 if (!file_ctx.prev_identical) {
                     // first time we see repeated line → output "*"
-                    kernel_write(file_ctx.file, "*\n", 2, offset);
+                    ret = kernel_write(file_ctx.file, "*\n", 2, offset);
+                    if (ret < 0) {
+                        kfree(chunk);
+                        return total_written ? total_written : ret;
+                    }
                     file_ctx.prev_identical = true;
                 }
             } else {
@@ -190,7 +195,11 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 linebuf[pos++] = '\n';
 
-                kernel_write(file_ctx.file, linebuf, pos, offset);
+                ret = kernel_write(file_ctx.file, linebuf, pos, offset);
+                if (ret < 0) {
+                    kfree(chunk);
+                    return total_written ? total_written : ret;
+                }
 
                 memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
                 file_ctx.prev_identical = false;
