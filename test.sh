@@ -49,6 +49,7 @@ for file in random_1K random_1M random_100M random_1G random_10G; do
         continue
     fi
 
+    echo "Generating output to compare using hexdump..."
     # Generate hexdump of the original file
     hexdump "$file" > /tmp/reference
 

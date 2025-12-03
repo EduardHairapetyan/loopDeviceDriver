@@ -131,7 +131,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
             kfree(chunk);
             return total_written ? total_written : -EFAULT;
         }
-        
+
         // now from small buffer read 16 byte chunks
         uint8_t kbuf[16] = {0};
 
@@ -203,6 +203,8 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     file_ctx.g_koffset += len;
     file_ctx.g_uoffset = *offset;
+
+    msleep(30); // simulate some delay
 
     return total_written;
 }
