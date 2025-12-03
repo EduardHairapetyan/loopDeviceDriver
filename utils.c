@@ -54,7 +54,7 @@ ssize_t write_line(FileContext* file_ctx,uint16_t *curr_line, size_t curr_size)
 
     // write words
     for (int i = 0; i < 8; i++) {
-        if (i < (int)(curr_size / 2)) {
+        if (i * 2 < curr_size) {
             hex16(linebuf + pos, curr_line[i]);
             pos += 4;
         } else {

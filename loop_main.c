@@ -116,11 +116,11 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         }
 
         // Process the chunk in 16-byte lines
-        for (size_t ofs = 0; ofs < chunkSize; ofs += 16) {
+        for (size_t ofs = 0; ofs < chunkSize; ofs += LINE_BYTES) {
             // Determine current line size
-            size_t curr_chunk_size = min((size_t)16, chunkSize - ofs);
-            uint8_t kbuf[16] = {0};
-            uint16_t curr_line[8] = {0};
+            size_t curr_chunk_size = min((size_t)LINE_BYTES, chunkSize - ofs);
+            uint8_t kbuf[LINE_BYTES] = {0};
+            uint16_t curr_line[WORDS_PER_LINE] = {0};
 
             // Parse words from the current line
             memcpy(kbuf, chunk + ofs, curr_chunk_size);
