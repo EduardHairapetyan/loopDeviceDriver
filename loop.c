@@ -83,72 +83,85 @@ static int dev_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-// Write function using global offset
+static const char hex_digits[] = "0123456789abcdef";
+
+// fast hex printing for 16-bit words
+static inline void hex16(char *out, u16 v)
+{
+    out[0] = hex_digits[(v >> 12) & 0xF];
+    out[1] = hex_digits[(v >> 8) & 0xF];
+    out[2] = hex_digits[(v >> 4) & 0xF];
+    out[3] = hex_digits[v & 0xF];
+}
+
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
     if (!file->private_data)
         return -EIO;
 
-    printk("global offset %lld size %ld \n", (long long)g_koffset, len);
+    printk("global offset %lld size %ld\n", (long long)g_koffset, len);
 
     size_t total_written = 0;
-    size_t hex_offset = g_koffset; // For display in hex dump
-    char *kbuf = kmalloc(16, GFP_KERNEL);
-    char linebuf[128];
-    if (!kbuf)
-        return -ENOMEM;
+    size_t hex_offset = g_koffset;
 
+    u8  kbuf[16];            // one 16-byte chunk
     u16 prev_line[8] = {0};
     bool prev_identical = false;
     bool first_line = true;
 
+    char linebuf[128];       // final formatted output per line
+
     while (total_written < len) {
+
         size_t chunk = min(len - total_written, (size_t)16);
 
-        if (copy_from_user(kbuf, buf + total_written, chunk)) {
-            kfree(kbuf);
+        if (copy_from_user(kbuf, buf + total_written, chunk))
             return total_written ? total_written : -EFAULT;
-        }
 
+        // parse bytes → u16 words
         u16 curr_line[8] = {0};
         for (size_t i = 0; i < chunk; i += 2) {
-            u16 w = kbuf[i];
-            if (i + 1 < chunk)
-                w |= kbuf[i + 1] << 8;
-            curr_line[i / 2] = w;
+            curr_line[i/2] = kbuf[i] | ((i+1 < chunk ? kbuf[i+1] : 0) << 8);
         }
 
-        if (!first_line && memcmp(curr_line, prev_line, chunk) == 0) {
+        // detect identical repeated line
+        if (!first_line && memcmp(curr_line, prev_line, sizeof(curr_line)) == 0) {
+
             if (!prev_identical) {
-                ssize_t written = kernel_write(file->private_data, "*\n", 2, offset);
-                if (written < 0) {
-                    kfree(kbuf);
-                    return written;
-                }
+                // first time we see repeated line → output "*"
+                kernel_write(file->private_data, "*\n", 2, offset);
                 prev_identical = true;
             }
         } else {
-            int pos = scnprintf(linebuf, sizeof(linebuf), "%07zx ", hex_offset);
 
-            for (size_t i = 0; i < chunk; i += 2) {
-                u16 w = curr_line[i / 2];
-                if (i == 0)
-                    pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%04x", w);
-                else
-                    pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, " %04x", w);
+            // build line: "00001fc0 1234 5678 ...\n"
+            int pos = 0;
+
+            // offset 7 digits hex padded
+            pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", hex_offset);
+
+            // words
+            for (int i = 0; i < 8; i++) {
+                if (i < chunk/2) {
+                    hex16(linebuf + pos, curr_line[i]);
+                    pos += 4;
+                } else {
+                    linebuf[pos++] = ' ';
+                    linebuf[pos++] = ' ';
+                    linebuf[pos++] = ' ';
+                    linebuf[pos++] = ' ';
+                    linebuf[pos++] = ' ';
+                    continue;
+                }
+
+                if (i < 7)
+                    linebuf[pos++] = ' ';
             }
 
-            for (size_t i = chunk; i < 16; i += 2)
-                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "     ");
+            linebuf[pos++] = '\n';
 
-            pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "\n");
-
-            ssize_t written = kernel_write(file->private_data, linebuf, pos, offset);
-            if (written < 0) {
-                kfree(kbuf);
-                return written;
-            }
+            kernel_write(file->private_data, linebuf, pos, offset);
 
             memcpy(prev_line, curr_line, sizeof(curr_line));
             prev_identical = false;
@@ -159,14 +172,10 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         hex_offset += chunk;
     }
 
-
-    kfree(kbuf);
-
-    // Update user-space offset by total_written
     g_koffset += len;
     g_uoffset = *offset;
 
-    msleep(10);
+    msleep(20);
 
     return total_written;
 }
