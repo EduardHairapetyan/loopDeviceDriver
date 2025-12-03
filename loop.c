@@ -15,10 +15,29 @@
 // Can be adjusted as needed
 #define MAX_CHUNK_SIZE      65536
 
+typedef struct FileContext {
+    // Global kernel-space offset
+    loff_t g_koffset;
+    loff_t g_uoffset;
+    uint8_t  kbuf[16];              // one 16-byte chunk
+    uint16_t prev_line[8];
+    bool prev_identical;
+    bool first_line;
+} FileContext;
+
 // Major number for the device
 static int major;
 // Device class pointer
 static struct class *loop_class;
+// File context
+static FileContext file_ctx = {
+    .g_koffset = 0,
+    .g_uoffset = 0,
+    .kbuf = {0},
+    .prev_line = {0},
+    .prev_identical = false,
+    .first_line = true,
+};
 
 // Helper function to set the devnode permissions
 static char *set_devnode(const struct device *dev, umode_t *mode)
@@ -28,21 +47,13 @@ static char *set_devnode(const struct device *dev, umode_t *mode)
     return NULL;
 }
 
-// Global kernel-space offset
-static loff_t g_koffset = 0;
-static loff_t g_uoffset = 0;
-uint8_t  kbuf[16];              // one 16-byte chunk
-uint16_t prev_line[8] = {0};
-bool prev_identical = false;
-bool first_line = true;
-
 // Open the device file
 static int dev_open(struct inode *inode, struct file *file)
 {
     printk(KERN_INFO "loop device opened\n");
 
     // Reset global offset to 0 on open
-    g_koffset = 0;
+    file_ctx.g_koffset = 0;
 
     int user_access_mode = file->f_flags & O_ACCMODE;
     int open_flags = user_access_mode;
@@ -74,19 +85,19 @@ static int dev_release(struct inode *inode, struct file *file)
     if (file->private_data) {
         char linebuf[128];
         // Print final hex offset line
-        int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)g_koffset);
-        kernel_write(file->private_data, linebuf, flen, &g_uoffset);
+        int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.g_koffset);
+        kernel_write(file->private_data, linebuf, flen, &(file_ctx.g_uoffset));
         filp_close(file->private_data, NULL);
         file->private_data = NULL;
     }
 
     // Reset global offset to 0 on close
-    g_koffset = 0;
-    g_uoffset = 0;
-    memset(kbuf,0,sizeof(kbuf));
-    memset(prev_line,0,sizeof(prev_line));
-    prev_identical = false;
-    first_line = true;
+    file_ctx.g_koffset = 0;
+    file_ctx.g_uoffset = 0;
+    memset(file_ctx.kbuf,0,sizeof(file_ctx.kbuf));
+    memset(file_ctx.prev_line,0,sizeof(file_ctx.prev_line));
+    file_ctx.prev_identical = false;
+    file_ctx.first_line = true;
 
     printk(KERN_INFO "loop device closed\n");
     return 0;
@@ -109,10 +120,10 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     if (!file->private_data)
         return -EIO;
 
-    printk("global offset %lld size %ld\n", (long long)g_koffset, len);
+    printk("global offset %lld size %ld\n", (long long)file_ctx.g_koffset, len);
 
     size_t total_written = 0;
-    size_t hex_offset = g_koffset;
+    size_t hex_offset = file_ctx.g_koffset;
 
     char linebuf[128];       // final formatted output per line
 
@@ -120,22 +131,22 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
         size_t chunk = min(len - total_written, (size_t)16);
 
-        if (copy_from_user(kbuf, buf + total_written, chunk))
+        if (copy_from_user(file_ctx.kbuf, buf + total_written, chunk))
             return total_written ? total_written : -EFAULT;
 
         // parse bytes → uint16_t words
         uint16_t curr_line[8] = {0};
         for (size_t i = 0; i < chunk; i += 2) {
-            curr_line[i/2] = kbuf[i] | ((i+1 < chunk ? kbuf[i+1] : 0) << 8);
+            curr_line[i/2] = file_ctx.kbuf[i] | ((i+1 < chunk ? file_ctx.kbuf[i+1] : 0) << 8);
         }
 
         // detect identical repeated line
-        if (!first_line && memcmp(curr_line, prev_line, sizeof(curr_line)) == 0) {
+        if (!file_ctx.first_line && memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
 
-            if (!prev_identical) {
+            if (!file_ctx.prev_identical) {
                 // first time we see repeated line → output "*"
                 kernel_write(file->private_data, "*\n", 2, offset);
-                prev_identical = true;
+                file_ctx.prev_identical = true;
             }
         } else {
 
@@ -171,17 +182,17 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
             kernel_write(file->private_data, linebuf, pos, offset);
 
-            memcpy(prev_line, curr_line, sizeof(curr_line));
-            prev_identical = false;
+            memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
+            file_ctx.prev_identical = false;
         }
 
-        first_line = false;
+        file_ctx.first_line = false;
         total_written += chunk;
         hex_offset += chunk;
     }
 
-    g_koffset += len;
-    g_uoffset = *offset;
+    file_ctx.g_koffset += len;
+    file_ctx.g_uoffset = *offset;
 
     msleep(50);
 
