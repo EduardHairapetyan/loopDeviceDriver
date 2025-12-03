@@ -37,6 +37,7 @@ static int dev_open(struct inode *inode, struct file *file)
     int user_access_mode = file->f_flags & O_ACCMODE;
     int open_flags = user_access_mode;
 
+    // Set flags based on access mode
     if (user_access_mode != O_RDONLY) {
         open_flags |= O_CREAT;
         if (file->f_flags & O_TRUNC)  open_flags |= O_TRUNC;
@@ -46,12 +47,14 @@ static int dev_open(struct inode *inode, struct file *file)
 
     printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
 
+    // Open the temporary file
     struct file *tmp_file = filp_open(TMP_FILE_PATH, open_flags, 0644);
     if (IS_ERR(tmp_file)) {
         printk(KERN_ERR "Failed to open file %s\n", TMP_FILE_PATH);
         return PTR_ERR(tmp_file);
     }
 
+    // Assign opened file to context
     file_ctx.file = tmp_file;
     return 0;
 }
@@ -59,11 +62,15 @@ static int dev_open(struct inode *inode, struct file *file)
 // Release the device file
 static int dev_release(struct inode *inode, struct file *file)
 {
+    // Check if file descriptor is valid
     if (file_ctx.file) {
         char linebuf[128];
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.user_offset);
-        kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.local_offset));
+        ssize_t ret = kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.local_offset));
+        if (ret < 0) {
+            printk(KERN_ERR "Error writing final offset line: %zd\n", ret);
+        }
     }
 
     // Reset context 
@@ -79,6 +86,7 @@ static int dev_release(struct inode *inode, struct file *file)
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
+    // Check if private_data is valid
     if (!file_ctx.file) {
         printk(KERN_ERR "File context is invalid in write\n");
         return -EIO;
@@ -88,6 +96,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     uint8_t *chunk;
     ssize_t wret;
 
+    // Allocate memory for chunk
     chunk = kmalloc(MAX_CHUNK_SIZE, GFP_KERNEL);
     if (!chunk)
     {
@@ -96,23 +105,29 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     }
 
     while (total_written < len) {
+        // Determine current chunk size
         size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
 
-        // Inline copy_from_user as you requested 
+        // Copy data from user space to kernel space 
         if (copy_from_user(chunk, buf + total_written, chunkSize)) {
             printk(KERN_ERR "Error copying data from user space\n");
             kfree(chunk);
             return total_written ? (ssize_t)total_written : -EFAULT;
         }
 
+        // Process the chunk in 16-byte lines
         for (size_t ofs = 0; ofs < chunkSize; ofs += 16) {
+            // Determine current line size
             size_t curr_chunk_size = min((size_t)16, chunkSize - ofs);
             uint8_t kbuf[16] = {0};
             uint16_t curr_line[8] = {0};
 
+            // Parse words from the current line
             memcpy(kbuf, chunk + ofs, curr_chunk_size);
             parse_words(curr_line, kbuf, curr_chunk_size);
 
+            // Check for repeated line
+            // In case of repetition, write '*' marker
             if (!file_ctx.is_first_line &&
                 memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
 
@@ -134,6 +149,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                 file_ctx.is_prev_line_identical = false;
             }
 
+            // Update state
             file_ctx.is_first_line = false;
             total_written += curr_chunk_size;
             file_ctx.user_offset += curr_chunk_size;
@@ -266,4 +282,4 @@ module_exit(loop_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduard Hayrapetyan");
-MODULE_DESCRIPTION("Kernel driver which creates char device for writing to /tmp/output file");
+MODULE_DESCRIPTION("Kernel driver which creates char device for writing hexdump to /tmp/output file");
