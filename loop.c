@@ -17,6 +17,7 @@
 
 typedef struct FileContext {
     // Global kernel-space offset
+    struct file * file;
     loff_t g_koffset;
     loff_t g_uoffset;
     uint8_t  kbuf[16];              // one 16-byte chunk
@@ -52,9 +53,6 @@ static int dev_open(struct inode *inode, struct file *file)
 {
     printk(KERN_INFO "loop device opened\n");
 
-    // Reset global offset to 0 on open
-    file_ctx.g_koffset = 0;
-
     int user_access_mode = file->f_flags & O_ACCMODE;
     int open_flags = user_access_mode;
 
@@ -73,7 +71,7 @@ static int dev_open(struct inode *inode, struct file *file)
         return PTR_ERR(tmp_file);
     }
 
-    file->private_data = tmp_file;
+    file_ctx.file = tmp_file;
     return 0;
 }
 
@@ -82,13 +80,13 @@ static int dev_release(struct inode *inode, struct file *file)
 {
     printk(KERN_INFO "loop device released\n");
 
-    if (file->private_data) {
+    if (file_ctx.file) {
         char linebuf[128];
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.g_koffset);
-        kernel_write(file->private_data, linebuf, flen, &(file_ctx.g_uoffset));
-        filp_close(file->private_data, NULL);
-        file->private_data = NULL;
+        kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.g_uoffset));
+        filp_close(file_ctx.file, NULL);
+        file_ctx.file = NULL;
     }
 
     // Reset global offset to 0 on close
@@ -117,7 +115,7 @@ static inline void hex16(char *out, uint16_t v)
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
-    if (!file->private_data)
+    if (!file_ctx.file)
         return -EIO;
 
     printk("global offset %lld size %ld\n", (long long)file_ctx.g_koffset, len);
@@ -145,7 +143,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
             if (!file_ctx.prev_identical) {
                 // first time we see repeated line → output "*"
-                kernel_write(file->private_data, "*\n", 2, offset);
+                kernel_write(file_ctx.file, "*\n", 2, offset);
                 file_ctx.prev_identical = true;
             }
         } else {
@@ -180,7 +178,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
             linebuf[pos++] = '\n';
 
-            kernel_write(file->private_data, linebuf, pos, offset);
+            kernel_write(file_ctx.file, linebuf, pos, offset);
 
             memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
             file_ctx.prev_identical = false;
@@ -204,7 +202,7 @@ static ssize_t dev_read(struct file *file, char __user *buf,
                         size_t len, loff_t *offset)
 {
     // Check if private_data is valid
-    if (!file->private_data)
+    if (!file_ctx.file)
         return -EIO;
 
     size_t total_bytes_read = 0;
@@ -224,7 +222,7 @@ static ssize_t dev_read(struct file *file, char __user *buf,
         size_t current_chunk_size = min(len - total_bytes_read, (size_t)MAX_CHUNK_SIZE);
 
         // Read data from the file into kernel buffer
-        ssize_t bytes_read = kernel_read(file->private_data, kbuffer, current_chunk_size, offset);
+        ssize_t bytes_read = kernel_read(file_ctx.file, kbuffer, current_chunk_size, offset);
 
         // Check for read errors
         if (bytes_read < 0) {
