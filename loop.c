@@ -32,6 +32,7 @@ static int major;
 static struct class *loop_class;
 // File context
 static FileContext file_ctx = {
+    .file = NULL,
     .g_koffset = 0,
     .g_uoffset = 0,
     .kbuf = {0},
