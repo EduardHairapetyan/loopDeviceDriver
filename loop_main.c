@@ -77,103 +77,61 @@ static int dev_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+/* Main write (keeps copy_from_user inline, no tiny copy helper, no goto) */
 static ssize_t dev_write(struct file *file, const char __user *buf,
                          size_t len, loff_t *offset)
 {
-    printk(KERN_INFO "dev_write called with len=%zu and offset=%lld\n", len, *offset);
-    if (!file_ctx.file)
-    {
+    if (!file_ctx.file) {
         printk(KERN_ERR "File context is invalid in write\n");
         return -EIO;
     }
 
-    ssize_t ret = 0;
     size_t total_written = 0;
+    uint8_t *chunk;
+    ssize_t wret;
 
-    size_t chunkSize = min(len, MAX_CHUNK_SIZE);
-    uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
-    
+    chunk = kmalloc(MAX_CHUNK_SIZE, GFP_KERNEL);
     if (!chunk)
-    {
-        printk(KERN_ERR "Failed to allocate memory for write chunk.\n");
-        return -ENOMEM;    
-    }
+        return -ENOMEM;
 
-    // Read from user buffer in chunks
     while (total_written < len) {
-        chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
+        size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
 
-        if (copy_from_user(chunk, buf + total_written, chunkSize))
-        {
+        /* Inline copy_from_user as you requested */
+        if (copy_from_user(chunk, buf + total_written, chunkSize)) {
             printk(KERN_ERR "Error copying data from user space\n");
             kfree(chunk);
-            return total_written ? total_written : -EFAULT;
+            return total_written ? (ssize_t)total_written : -EFAULT;
         }
 
-        // now from small buffer read 16 byte chunks
-        uint8_t kbuf[16] = {0};
-
-        // process 16-byte chunks
-        for (size_t i = 0; i < chunkSize; i += 16) {
-            uint8_t curr_chunk_size = min((size_t)16, chunkSize - i);
-            memcpy(kbuf, chunk + i, curr_chunk_size);
-            char linebuf[128];       // final formatted output per line
-
-            // parse bytes → uint16_t words
+        for (size_t ofs = 0; ofs < chunkSize; ofs += 16) {
+            size_t curr_chunk_size = min((size_t)16, chunkSize - ofs);
+            uint8_t kbuf[16] = {0};
             uint16_t curr_line[8] = {0};
-            for (size_t i = 0; i < curr_chunk_size; i += 2) {
-                curr_line[i/2] = kbuf[i] | ((i+1 < curr_chunk_size ? kbuf[i+1] : 0) << 8);
-            }
 
-            // detect identical repeated line
-            if (!file_ctx.is_first_line && memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
+            memcpy(kbuf, chunk + ofs, curr_chunk_size);
+            parse_words(curr_line, kbuf, curr_chunk_size);
 
-                if (!file_ctx.is_prev_line_identical) {
-                    // first time we see repeated line → output "*"
-                    ret = kernel_write(file_ctx.file, "*\n", 2, &(file_ctx.local_offset));
-                    if (ret < 0) {
-                        printk(KERN_ERR "Error writing to file in write\n");
-                        kfree(chunk);
-                        return total_written ? total_written : ret;
-                    }
-                    file_ctx.is_prev_line_identical = true;
+            if (!file_ctx.is_first_line &&
+                memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
+
+                wret = write_repeated_line(&file_ctx);
+                if (wret < 0) {
+                    printk(KERN_ERR "Error writing '*' marker: %zd\n", wret);
+                    kfree(chunk);
+                    return total_written ? (ssize_t)total_written : wret;
                 }
             } else {
-
-                // build line: "00001fc0 1234 5678 ...\n"
-                int pos = 0;
-
-                // offset 7 digits hex padded
-                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", (size_t)file_ctx.user_offset);
-
-                for (int i = 0; i < 8; i++) {
-                    if (i < curr_chunk_size / 2) {
-                        hex16(linebuf + pos, curr_line[i]);
-                        pos += 4;
-                    } else {
-                        // Fill empty words with spaces
-                        memset(linebuf + pos, ' ', 4);
-                        pos += 4;
-                    }
-                    // Space between words (except after last)
-                    if (i != 7)
-                        linebuf[pos++] = ' ';
-                }
-
-
-                linebuf[pos++] = '\n';
-
-                ret = kernel_write(file_ctx.file, linebuf, pos, &(file_ctx.local_offset));
-                if (ret < 0) {
-                    printk(KERN_ERR "Error writing to file in write\n");
+                wret = write_line(&file_ctx,curr_line, curr_chunk_size);
+                if (wret < 0) {
+                    printk(KERN_ERR "Error writing formatted line: %zd\n", wret);
                     kfree(chunk);
-                    return total_written ? total_written : ret;
+                    return total_written ? (ssize_t)total_written : wret;
                 }
 
                 memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
                 file_ctx.is_prev_line_identical = false;
             }
-        
 
             file_ctx.is_first_line = false;
             total_written += curr_chunk_size;
@@ -183,15 +141,11 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     kfree(chunk);
 
-    // Update the user-space offset
-    // isn't strictly necessary as we maintain user_offset
+    /* update user offset back to caller */
     *offset = file_ctx.user_offset;
 
-    // msleep(30); // simulate some delay
-
-    return total_written;
+    return (ssize_t)total_written;
 }
-
 
 static ssize_t dev_read(struct file *file, char __user *buf,
                         size_t len, loff_t *offset)
