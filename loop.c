@@ -18,11 +18,11 @@
 typedef struct FileContext {
     // Global kernel-space offset
     struct file * file;
-    loff_t g_koffset;
-    loff_t g_uoffset;
+    loff_t user_offset;
+    loff_t local_offset;
     uint16_t prev_line[8];
-    bool prev_identical;
-    bool first_line;
+    bool is_prev_line_identical;
+    bool is_first_line;
 } FileContext;
 
 // Major number for the device
@@ -32,12 +32,41 @@ static struct class *loop_class;
 // File context
 static FileContext file_ctx = {
     .file = NULL,
-    .g_koffset = 0,
-    .g_uoffset = 0,
+    .user_offset = 0,
+    .local_offset = 0,
     .prev_line = {0},
-    .prev_identical = false,
-    .first_line = true,
+    .is_prev_line_identical = false,
+    .is_first_line = true,
 };
+
+static int32_t release_file_context(FileContext* ctx)
+{
+    if (!ctx)
+        return -1;
+
+    if (ctx->file) {
+        filp_close(ctx->file, NULL);
+        ctx->file = NULL;
+    }
+    ctx->user_offset = 0;
+    ctx->local_offset = 0;
+    memset(ctx->prev_line,0,sizeof(ctx->prev_line));
+    ctx->is_prev_line_identical = false;
+    ctx->is_first_line = true;
+
+    return 0;
+}
+
+// fast hex printing for 16-bit words
+static void hex16(char *out, uint16_t v)
+{
+    const char hex_digits[] = "0123456789abcdef";
+
+    out[0] = hex_digits[(v >> 12) & 0xF];
+    out[1] = hex_digits[(v >> 8) & 0xF];
+    out[2] = hex_digits[(v >> 4) & 0xF];
+    out[3] = hex_digits[v & 0xF];
+}
 
 // Helper function to set the devnode permissions
 static char *set_devnode(const struct device *dev, umode_t *mode)
@@ -78,32 +107,19 @@ static int dev_release(struct inode *inode, struct file *file)
     if (file_ctx.file) {
         char linebuf[128];
         // Print final hex offset line
-        int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.g_koffset);
-        kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.g_uoffset));
+        int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.user_offset);
+        kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.local_offset));
         filp_close(file_ctx.file, NULL);
         file_ctx.file = NULL;
     }
 
     // Reset context 
-    file_ctx.g_koffset = 0;
-    file_ctx.g_uoffset = 0;
-    memset(file_ctx.prev_line,0,sizeof(file_ctx.prev_line));
-    file_ctx.prev_identical = false;
-    file_ctx.first_line = true;
+    if(release_file_context(&file_ctx) < 0) {
+        printk(KERN_ERR "Failed to release file context\n");
+    }
 
     printk(KERN_INFO "loop device released\n");
     return 0;
-}
-
-// fast hex printing for 16-bit words
-static void hex16(char *out, uint16_t v)
-{
-    const char hex_digits[] = "0123456789abcdef";
-
-    out[0] = hex_digits[(v >> 12) & 0xF];
-    out[1] = hex_digits[(v >> 8) & 0xF];
-    out[2] = hex_digits[(v >> 4) & 0xF];
-    out[3] = hex_digits[v & 0xF];
 }
 
 static ssize_t dev_write(struct file *file, const char __user *buf,
@@ -155,17 +171,17 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
             }
 
             // detect identical repeated line
-            if (!file_ctx.first_line && memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
+            if (!file_ctx.is_first_line && memcmp(curr_line, file_ctx.prev_line, sizeof(curr_line)) == 0) {
 
-                if (!file_ctx.prev_identical) {
+                if (!file_ctx.is_prev_line_identical) {
                     // first time we see repeated line → output "*"
-                    ret = kernel_write(file_ctx.file, "*\n", 2, &(file_ctx.g_uoffset));
+                    ret = kernel_write(file_ctx.file, "*\n", 2, &(file_ctx.local_offset));
                     if (ret < 0) {
                         printk(KERN_ERR "Error writing to file in write\n");
                         kfree(chunk);
                         return total_written ? total_written : ret;
                     }
-                    file_ctx.prev_identical = true;
+                    file_ctx.is_prev_line_identical = true;
                 }
             } else {
 
@@ -173,7 +189,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                 int pos = 0;
 
                 // offset 7 digits hex padded
-                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", (size_t)file_ctx.g_koffset);
+                pos += scnprintf(linebuf + pos, sizeof(linebuf) - pos, "%07zx ", (size_t)file_ctx.user_offset);
 
                 for (int i = 0; i < 8; i++) {
                     if (i < curr_chunk_size / 2) {
@@ -192,7 +208,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
                 linebuf[pos++] = '\n';
 
-                ret = kernel_write(file_ctx.file, linebuf, pos, &(file_ctx.g_uoffset));
+                ret = kernel_write(file_ctx.file, linebuf, pos, &(file_ctx.local_offset));
                 if (ret < 0) {
                     printk(KERN_ERR "Error writing to file in write\n");
                     kfree(chunk);
@@ -200,21 +216,21 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                 }
 
                 memcpy(file_ctx.prev_line, curr_line, sizeof(curr_line));
-                file_ctx.prev_identical = false;
+                file_ctx.is_prev_line_identical = false;
             }
         
 
-            file_ctx.first_line = false;
+            file_ctx.is_first_line = false;
             total_written += curr_chunk_size;
-            file_ctx.g_koffset += curr_chunk_size;
+            file_ctx.user_offset += curr_chunk_size;
         }
     }
 
     kfree(chunk);
 
     // Update the user-space offset
-    // isn't strictly necessary as we maintain g_koffset
-    *offset = file_ctx.g_koffset;
+    // isn't strictly necessary as we maintain user_offset
+    *offset = file_ctx.user_offset;
 
     // msleep(30); // simulate some delay
 
