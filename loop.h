@@ -11,8 +11,8 @@
 // Can be adjusted as needed
 #define MAX_CHUNK_SIZE      65536
 
+// File context structure
 typedef struct FileContext {
-    // Global kernel-space offset
     struct file * file;
     loff_t user_offset;
     loff_t local_offset;
@@ -20,6 +20,5 @@ typedef struct FileContext {
     bool is_prev_line_identical;
     bool is_first_line;
 } FileContext;
-
 
 #endif // __LOOP_H__
