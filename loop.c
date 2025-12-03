@@ -127,7 +127,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     // Read from user buffer in chunks
     while (total_written < len) {
-        size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
+        chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
 
         if (copy_from_user(chunk, buf + total_written, chunkSize))
         {
