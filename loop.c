@@ -31,6 +31,10 @@ static char *set_devnode(const struct device *dev, umode_t *mode)
 // Global kernel-space offset
 static loff_t g_koffset = 0;
 static loff_t g_uoffset = 0;
+uint8_t  kbuf[16];              // one 16-byte chunk
+uint16_t prev_line[8] = {0};
+bool prev_identical = false;
+bool first_line = true;
 
 // Open the device file
 static int dev_open(struct inode *inode, struct file *file)
@@ -78,6 +82,11 @@ static int dev_release(struct inode *inode, struct file *file)
 
     // Reset global offset to 0 on close
     g_koffset = 0;
+    g_uoffset = 0;
+    memset(kbuf,0,sizeof(kbuf));
+    memset(prev_line,0,sizeof(prev_line));
+    prev_identical = false;
+    first_line = true;
 
     printk(KERN_INFO "loop device closed\n");
     return 0;
@@ -86,7 +95,7 @@ static int dev_release(struct inode *inode, struct file *file)
 static const char hex_digits[] = "0123456789abcdef";
 
 // fast hex printing for 16-bit words
-static inline void hex16(char *out, u16 v)
+static inline void hex16(char *out, uint16_t v)
 {
     out[0] = hex_digits[(v >> 12) & 0xF];
     out[1] = hex_digits[(v >> 8) & 0xF];
@@ -105,11 +114,6 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     size_t total_written = 0;
     size_t hex_offset = g_koffset;
 
-    u8  kbuf[16];            // one 16-byte chunk
-    u16 prev_line[8] = {0};
-    bool prev_identical = false;
-    bool first_line = true;
-
     char linebuf[128];       // final formatted output per line
 
     while (total_written < len) {
@@ -119,8 +123,8 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         if (copy_from_user(kbuf, buf + total_written, chunk))
             return total_written ? total_written : -EFAULT;
 
-        // parse bytes → u16 words
-        u16 curr_line[8] = {0};
+        // parse bytes → uint16_t words
+        uint16_t curr_line[8] = {0};
         for (size_t i = 0; i < chunk; i += 2) {
             curr_line[i/2] = kbuf[i] | ((i+1 < chunk ? kbuf[i+1] : 0) << 8);
         }
@@ -147,7 +151,11 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
                     hex16(linebuf + pos, curr_line[i]);
                     pos += 4;
                 } else {
-                    linebuf[pos++] = ' ';
+
+                    
+                    if( i != chunk/2)
+                        linebuf[pos++] = ' ';
+                    
                     linebuf[pos++] = ' ';
                     linebuf[pos++] = ' ';
                     linebuf[pos++] = ' ';
@@ -175,7 +183,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     g_koffset += len;
     g_uoffset = *offset;
 
-    msleep(20);
+    msleep(50);
 
     return total_written;
 }
