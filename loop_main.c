@@ -64,12 +64,10 @@ static int dev_release(struct inode *inode, struct file *file)
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.user_offset);
         kernel_write(file_ctx.file, linebuf, flen, &(file_ctx.local_offset));
-        filp_close(file_ctx.file, NULL);
-        file_ctx.file = NULL;
     }
 
     // Reset context 
-    if(release_file_context(&file_ctx) < 0) {
+    if (release_file_context(&file_ctx) < 0) {
         printk(KERN_ERR "Failed to release file context\n");
     }
 
@@ -92,12 +90,15 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     chunk = kmalloc(MAX_CHUNK_SIZE, GFP_KERNEL);
     if (!chunk)
+    {
+        printk(KERN_ERR "Failed to allocate memory.\n");
         return -ENOMEM;
+    }
 
     while (total_written < len) {
         size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
 
-        /* Inline copy_from_user as you requested */
+        // Inline copy_from_user as you requested 
         if (copy_from_user(chunk, buf + total_written, chunkSize)) {
             printk(KERN_ERR "Error copying data from user space\n");
             kfree(chunk);
@@ -141,7 +142,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     kfree(chunk);
 
-    /* update user offset back to caller */
+    // update user offset back to caller 
     *offset = file_ctx.user_offset;
 
     return (ssize_t)total_written;
