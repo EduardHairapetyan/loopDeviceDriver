@@ -90,7 +90,7 @@ static int dev_release(struct inode *inode, struct file *file)
         file_ctx.file = NULL;
     }
 
-    // Reset global offset to 0 on close
+    // Reset context 
     file_ctx.g_koffset = 0;
     file_ctx.g_uoffset = 0;
     memset(file_ctx.kbuf,0,sizeof(file_ctx.kbuf));
@@ -102,11 +102,11 @@ static int dev_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-static const char hex_digits[] = "0123456789abcdef";
-
 // fast hex printing for 16-bit words
-static inline void hex16(char *out, uint16_t v)
+static void hex16(char *out, uint16_t v)
 {
+    const char hex_digits[] = "0123456789abcdef";
+
     out[0] = hex_digits[(v >> 12) & 0xF];
     out[1] = hex_digits[(v >> 8) & 0xF];
     out[2] = hex_digits[(v >> 4) & 0xF];
@@ -118,8 +118,6 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 {
     if (!file_ctx.file)
         return -EIO;
-
-    printk("global offset %lld size %ld\n", (long long)file_ctx.g_koffset, len);
 
     size_t total_written = 0;
     size_t hex_offset = file_ctx.g_koffset;
