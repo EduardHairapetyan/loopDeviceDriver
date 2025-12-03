@@ -119,12 +119,15 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     size_t total_written = 0;
     size_t hex_offset = file_ctx.g_koffset;
 
+    size_t chunkSize = min(len, MAX_CHUNK_SIZE);
+    uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
+    
+    if (!chunk)
+        return -ENOMEM;    
+
     // Read from user buffer in chunks
     while (total_written < len) {
-
         size_t chunkSize = min(len - total_written, MAX_CHUNK_SIZE);
-
-        uint8_t* chunk = kmalloc(chunkSize, GFP_KERNEL);
 
         if (copy_from_user(chunk, buf + total_written, chunkSize))
         {
@@ -201,10 +204,13 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         kfree(chunk);
     }
 
+    kfree(chunk);
+
     file_ctx.g_koffset += len;
     file_ctx.g_uoffset = *offset;
 
-    msleep(30); // simulate some delay
+
+    // msleep(30); // simulate some delay
 
     return total_written;
 }
