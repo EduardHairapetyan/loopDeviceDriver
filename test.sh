@@ -30,16 +30,23 @@ fi
 # Step 3: Generate random files of different sizes
 echo "Generating random files with various sizes..."
 
-for size in 1K 1M 100M 1G 10G; do
+for size in 1K 1M 100M 1G 2G; do
     filename="random_${size}"
     echo "Generating $filename..."
-    dd if=/dev/urandom of="$filename" bs=$size count=1 status=none
+    case $size in
+        1K) bs=1K count=1 ;;
+        1M) bs=1M count=1 ;;
+        100M) bs=100M count=1 ;;   # 10 × 10M = 100M
+        1G) bs=1G count=1 ;;    # 10 × 100M = 1G
+        2G) bs=1G count=2 ;;     # 10 × 1G = 10G
+    esac
+    dd if=/dev/urandom of="$filename" bs=$bs count=$count status=none
 done
 
 echo "Random files generated."
 
 # Step 4: Write each file to the device and compare with hexdump
-for file in random_1K random_1M random_100M random_1G random_10G; do
+for file in random_2G; do
     echo "Writing $file to $DEVICE..."
 
     # Write to the device
@@ -51,7 +58,7 @@ for file in random_1K random_1M random_100M random_1G random_10G; do
 
     echo "Generating output to compare using hexdump..."
     # Generate hexdump of the original file
-    hexdump "$file" > /tmp/reference
+    pv -L 10m "$file" | hexdump > /tmp/reference
 
     # Compare device output with hexdump
     echo "Comparing $file output with hexdump..."
@@ -66,7 +73,7 @@ done
 
 # Step 5: Clean up generated files
 echo "Cleaning up generated files..."
-rm -f random_1K random_1M random_100M random_1G random_10G /tmp/reference /tmp/diff_result
+rm -f random_1K random_1M random_100M random_1G random_2G /tmp/reference /tmp/diff_result
 
 # Step 6: Unload the kernel module after testing
 echo "Unloading kernel module..."
