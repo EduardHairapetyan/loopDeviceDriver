@@ -27,41 +27,53 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Step 3: Generate random files of different sizes
+# Step 3: Generate random files
 echo "Generating random files with various sizes..."
 
 for size in 1K 1M 100M; do
     filename="random_${size}"
     echo "Generating $filename..."
-    case $size in
-        1K) bs=1K count=1 ;;
-        1M) bs=1M count=1 ;;
-        100M) bs=100M count=1 ;;   # 10 × 10M = 100M
-        1G) bs=1G count=1 ;;    # 10 × 100M = 1G
-        2G) bs=1G count=2 ;;     # 10 × 1G = 10G
-    esac
-    dd if=/dev/urandom of="$filename" bs=$bs count=$count status=none
+    dd if=/dev/urandom of="$filename" bs=$size count=1 status=none
 done
 
 echo "Random files generated."
 
+# Just to initialize the device
+echo hello > /dev/loop
+
 # Step 4: Write each file to the device and compare with hexdump
 for file in random_1K random_1M random_100M; do
-    echo "Writing $file to $DEVICE..."
+    echo ""
+    echo "==============================="
+    echo "Processing $file"
+    echo "==============================="
 
-    # Write to the device
+    # Time writing to /dev/loop
+    echo -n "Writing to $DEVICE... "
+    start_write=$(date +%s.%N)
+
     cat "$file" > "$DEVICE"
     if [ $? -ne 0 ]; then
-        echo "Failed to write $file to device!"
+        echo "FAILED!"
         continue
     fi
 
-    echo "Generating output to compare using hexdump..."
-    # Generate hexdump of the original file
+    end_write=$(date +%s.%N)
+    write_time=$(echo "$end_write - $start_write" | bc)
+    echo "done (time: ${write_time}s)"
+
+    # Time running hexdump
+    echo -n "Running hexdump... "
+    start_hex=$(date +%s.%N)
+
     hexdump "$file" > /tmp/reference
 
-    # Compare device output with hexdump
-    echo "Comparing $file output with hexdump..."
+    end_hex=$(date +%s.%N)
+    hex_time=$(echo "$end_hex - $start_hex" | bc)
+    echo "done (time: ${hex_time}s)"
+
+    # Compare
+    echo "Comparing /dev/loop output with hexdump..."
     diff /tmp/reference "$OUTPUT_PATH" > /tmp/diff_result
     if [ $? -eq 0 ]; then
         echo "Comparison successful for $file!"
@@ -69,6 +81,10 @@ for file in random_1K random_1M random_100M; do
         echo "Comparison failed for $file! Differences:"
         head -n 10 /tmp/diff_result
     fi
+
+    echo "Times for $file:"
+    echo "  Write to /dev/loop: ${write_time}s"
+    echo "  hexdump execution : ${hex_time}s"
 done
 
 # Step 5: Clean up generated files
