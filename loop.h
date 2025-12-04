@@ -4,9 +4,9 @@
 #include <linux/fs.h>     
 #include <linux/types.h>  
 
-#define DEVICE_NAME     "loop"
-#define TMP_FILE_PATH   "/tmp/output"
-#define MINOR_NUM       0
+#define DEVICE_NAME         "loop"
+#define TMP_FILE_PATH       "/tmp/output"
+#define MINOR_NUM           0
 // Maximum chunk size size for read/write operations
 // Can be adjusted as needed
 #define MAX_CHUNK_SIZE      65536
