@@ -30,7 +30,7 @@ fi
 # Step 3: Generate random files of different sizes
 echo "Generating random files with various sizes..."
 
-for size in 1K 1M 100M 1G 2G; do
+for size in 1K 1M 100M; do
     filename="random_${size}"
     echo "Generating $filename..."
     case $size in
@@ -46,7 +46,7 @@ done
 echo "Random files generated."
 
 # Step 4: Write each file to the device and compare with hexdump
-for file in random_2G; do
+for file in random_1K random_1M random_100M; do
     echo "Writing $file to $DEVICE..."
 
     # Write to the device
@@ -58,7 +58,7 @@ for file in random_2G; do
 
     echo "Generating output to compare using hexdump..."
     # Generate hexdump of the original file
-    pv -L 10m "$file" | hexdump > /tmp/reference
+    hexdump "$file" > /tmp/reference
 
     # Compare device output with hexdump
     echo "Comparing $file output with hexdump..."
@@ -73,7 +73,7 @@ done
 
 # Step 5: Clean up generated files
 echo "Cleaning up generated files..."
-rm -f random_1K random_1M random_100M random_1G random_2G /tmp/reference /tmp/diff_result
+rm -f random_1K random_1M random_100M /tmp/reference /tmp/diff_result
 
 # Step 6: Unload the kernel module after testing
 echo "Unloading kernel module..."
