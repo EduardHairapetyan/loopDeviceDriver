@@ -83,8 +83,7 @@ static int dev_release(struct inode *inode, struct file *file)
 }
 
 /* Main write (keeps copy_from_user inline, no tiny copy helper, no goto) */
-static ssize_t dev_write(struct file *file, const char __user *buf,
-                         size_t len, loff_t *offset)
+static ssize_t dev_write(struct file *file, const char __user *buf,size_t len, loff_t *offset)
 {
     // Check if private_data is valid
     if (!file_ctx.file) {
@@ -164,8 +163,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
     return (ssize_t)total_written;
 }
 
-static ssize_t dev_read(struct file *file, char __user *buf,
-                        size_t len, loff_t *offset)
+static ssize_t dev_read(struct file *file, char __user *buf,size_t len, loff_t *offset)
 {
     // Check if private_data is valid
     if (!file_ctx.file)
