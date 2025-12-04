@@ -45,7 +45,7 @@ static int dev_open(struct inode *inode, struct file *file)
     }
     open_flags |= O_LARGEFILE;
 
-    printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
+    // printk(KERN_INFO "Opening file %s with flags 0x%x\n", TMP_FILE_PATH, open_flags);
 
     // Open the temporary file
     struct file *tmp_file = filp_open(TMP_FILE_PATH, open_flags, 0644);
@@ -78,7 +78,7 @@ static int dev_release(struct inode *inode, struct file *file)
         printk(KERN_ERR "Failed to release file context\n");
     }
 
-    printk(KERN_INFO "loop device released\n");
+    // printk(KERN_INFO "loop device released\n");
     return 0;
 }
 
@@ -263,7 +263,7 @@ static int __init loop_init(void)
         return -ENOMEM;
     }
 
-    printk(KERN_INFO "loop device loaded with major %d\n", major);
+    // printk(KERN_INFO "loop device loaded with major %d\n", major);
     return 0;
 }
 
@@ -274,7 +274,7 @@ static void __exit loop_exit(void)
     device_destroy(loop_class, MKDEV(major, MINOR_NUM));
     class_destroy(loop_class);
     unregister_chrdev(major, DEVICE_NAME);
-    printk(KERN_INFO "loop device unloaded\n");
+    // printk(KERN_INFO "loop device unloaded\n");
 }
 
 module_init(loop_init);
@@ -282,4 +282,5 @@ module_exit(loop_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduard Hayrapetyan");
+MODULE_VERSION("1.0");
 MODULE_DESCRIPTION("Kernel driver which creates char device for writing hex dump of file to /tmp/output file");
