@@ -63,7 +63,7 @@ static int dev_open(struct inode *inode, struct file *file)
 static int dev_release(struct inode *inode, struct file *file)
 {
     // Check if file descriptor is valid
-    if (file_ctx.file) {
+    if (file_ctx.user_offset && file_ctx.file) {
         char linebuf[128];
         // Print final hex offset line
         int flen = scnprintf(linebuf, sizeof(linebuf), "%07zx\n", (size_t)file_ctx.user_offset);
