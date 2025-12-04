@@ -10,12 +10,12 @@
 // Maximum chunk size size for read/write operations
 // Can be adjusted as needed
 #define MAX_CHUNK_SIZE      65536
-// Number of bytes per line in hexdump
+// Number of bytes per line in hexdumpl
 #define LINE_BYTES          16
 // Number of 16-bit words per line
 #define WORDS_PER_LINE      (LINE_BYTES / 2)
 
-// File context structure
+// File context structure 
 typedef struct FileContext {
     uint16_t prev_line[8];
     struct file * file;

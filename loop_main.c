@@ -15,10 +15,10 @@ static int major;
 static struct class *loop_class;
 // File context
 static FileContext file_ctx = {
+    .prev_line = {0},
     .file = NULL,
     .user_offset = 0,
     .local_offset = 0,
-    .prev_line = {0},
     .is_prev_line_identical = false,
     .is_first_line = true,
 };
