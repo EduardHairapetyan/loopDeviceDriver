@@ -282,4 +282,4 @@ module_exit(loop_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Eduard Hayrapetyan");
-MODULE_DESCRIPTION("Kernel driver which creates char device for writing hexdump to /tmp/output file");
+MODULE_DESCRIPTION("Kernel driver which creates char device for writing hex dump of file to /tmp/output file");
