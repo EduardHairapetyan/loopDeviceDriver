@@ -17,10 +17,10 @@
 
 // File context structure
 typedef struct FileContext {
+    uint16_t prev_line[8];
     struct file * file;
     loff_t user_offset;
     loff_t local_offset;
-    uint16_t prev_line[8];
     bool is_prev_line_identical;
     bool is_first_line;
 } FileContext;

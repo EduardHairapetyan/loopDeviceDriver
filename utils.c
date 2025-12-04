@@ -20,7 +20,7 @@ int32_t release_file_context(FileContext* ctx)
     }
     ctx->user_offset = 0;
     ctx->local_offset = 0;
-    memset(ctx->prev_line,0,sizeof(ctx->prev_line));
+    memset(ctx->prev_line, 0, sizeof(ctx->prev_line));
     ctx->is_prev_line_identical = false;
     ctx->is_first_line = true;
 
@@ -79,10 +79,10 @@ ssize_t write_repeated_line(FileContext* file_ctx)
 {
     // Only write '*' if we haven't already for this repeated line
     if (!file_ctx->is_prev_line_identical) {
-        ssize_t w = kernel_write(file_ctx->file, "*\n", 2, &(file_ctx->local_offset));
-        if (w >= 0)
+        ssize_t wret = kernel_write(file_ctx->file, "*\n", 2, &(file_ctx->local_offset));
+        if (wret >= 0)
             file_ctx->is_prev_line_identical = true;
-        return w;
+        return wret;
     }
     return 0;
 }
